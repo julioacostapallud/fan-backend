@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum DiscountType {
+  NONE
+  FIXED
+  PERCENTAGE
+}
+
+model Product {
+  id             String         @id @default(cuid())
+  name           String
+  normalizedName String
+  defaultPrice   Decimal        @db.Decimal(12, 2)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  productMotifs  ProductMotif[]
+  saleItems      SaleItem[]
+
+  @@index([normalizedName])
+  @@index([isActive, name])
+}
+
+model Motif {
+  id             String         @id @default(cuid())
+  name           String
+  normalizedName String         @unique
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  productMotifs  ProductMotif[]
+  saleItems      SaleItem[]
+
+  @@index([normalizedName])
+}
+
+model ProductMotif {
+  id        String   @id @default(cuid())
+  productId String
+  motifId   String
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
+  motif     Motif    @relation(fields: [motifId], references: [id])
+
+  @@unique([productId, motifId])
+  @@index([productId])
+}
+
+model Sale {
+  id                    String               @id @default(cuid())
+  subtotal              Decimal              @db.Decimal(12, 2)
+  generalDiscountType   DiscountType         @default(NONE)
+  generalDiscountValue  Decimal              @default(0) @db.Decimal(12, 2)
+  generalDiscountAmount Decimal              @default(0) @db.Decimal(12, 2)
+  total                 Decimal              @db.Decimal(12, 2)
+  notes                 String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  items                 SaleItem[]
+  idempotencyRecord     IdempotencyRecord?
+
+  @@index([createdAt(sort: Desc)])
+}
+
+model SaleItem {
+  id             String       @id @default(cuid())
+  saleId         String
+  productId      String
+  motifId        String
+  quantity       Int
+  unitPrice      Decimal      @db.Decimal(12, 2)
+  lineSubtotal   Decimal      @db.Decimal(12, 2)
+  discountType   DiscountType @default(NONE)
+  discountValue  Decimal      @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal      @default(0) @db.Decimal(12, 2)
+  lineTotal      Decimal      @db.Decimal(12, 2)
+  imageBase64    String?
+  imageMimeType  String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  sale           Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product        Product      @relation(fields: [productId], references: [id])
+  motif          Motif        @relation(fields: [motifId], references: [id])
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model IdempotencyRecord {
+  key       String   @id
+  saleId    String   @unique
+  createdAt DateTime @default(now())
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+}
