@@ -8,10 +8,19 @@ export class MotifsController {
   constructor(private readonly motifsService: MotifsService) {}
 
   @Get('search')
-  @ApiOperation({ summary: 'Buscar motivos' })
+  @ApiOperation({ summary: 'Buscar motivos (prioriza los del producto si hay productId)' })
   @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'productId', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  search(@Query('q') q?: string, @Query('limit') limit?: string) {
-    return this.motifsService.search(q, limit ? Number(limit) : 20);
+  search(
+    @Query('q') q?: string,
+    @Query('productId') productId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.motifsService.search(
+      q,
+      limit ? Number(limit) : 20,
+      productId,
+    );
   }
 }
