@@ -14,6 +14,7 @@ async function main() {
     { id: 'user_camifan', username: 'camifan' },
     { id: 'user_lucifan', username: 'lucifan' },
     { id: 'user_juliofan', username: 'juliofan' },
+    { id: 'user_dalafan', username: 'dalafan' },
   ];
 
   for (const u of users) {
@@ -33,16 +34,18 @@ async function main() {
     });
   }
 
-  // Precios de ejemplo — modificar antes del evento real
+  // Precios oficiales del evento
   const productDefs = [
-    { name: 'Chapa A4', defaultPrice: '5000.00' },
-    { name: 'Chapa A5', defaultPrice: '3500.00' },
-    { name: 'Gorra', defaultPrice: '12000.00' },
-    { name: 'Remera', defaultPrice: '15000.00' },
-    { name: 'Taza plástica', defaultPrice: '4000.00' },
-    { name: 'Cerámica', defaultPrice: '8000.00' },
-    { name: 'Longboard', defaultPrice: '45000.00' },
+    { name: 'Gorra', defaultPrice: '20000.00' },
+    { name: 'Remera', defaultPrice: '20000.00' },
+    { name: 'Taza cerámica', defaultPrice: '10000.00' },
+    { name: 'Taza plástica', defaultPrice: '5000.00' },
+    { name: 'Cantimplora', defaultPrice: '6000.00' },
+    { name: 'Chapa A4', defaultPrice: '10000.00' },
+    { name: 'Chapa Longitudinal', defaultPrice: '10000.00' },
+    { name: 'Chapa A5', defaultPrice: '5000.00' },
     { name: 'Stickers', defaultPrice: '1000.00' },
+    { name: 'Otro', defaultPrice: '0.00' },
   ];
 
   const motifNames = [
@@ -67,6 +70,14 @@ async function main() {
       where: { normalizedName: normalizeName(def.name) },
     });
     if (existing) {
+      await prisma.product.update({
+        where: { id: existing.id },
+        data: {
+          name: def.name,
+          defaultPrice: new Decimal(def.defaultPrice),
+          isActive: true,
+        },
+      });
       products[def.name] = existing.id;
       continue;
     }
@@ -101,13 +112,14 @@ async function main() {
     ['Gorra', 'Indio'],
     ['Remera', 'Indio'],
     ['Taza plástica', 'Minecraft'],
-    ['Cerámica', 'San Lorenzo'],
-    ['Cerámica', 'Messi'],
-    ['Longboard', 'Racing'],
-    ['Longboard', 'McLaren'],
+    ['Taza cerámica', 'San Lorenzo'],
+    ['Taza cerámica', 'Messi'],
+    ['Chapa Longitudinal', 'Racing'],
+    ['Chapa Longitudinal', 'McLaren'],
   ];
 
   for (const [productName, motifName] of links) {
+    if (!products[productName] || !motifs[motifName]) continue;
     await prisma.productMotif.upsert({
       where: {
         productId_motifId: {
@@ -123,7 +135,7 @@ async function main() {
     });
   }
 
-  console.log('Seed completado: productos, motivos y relaciones de ejemplo.');
+  console.log('Seed completado: usuarios, productos y motivos.');
 }
 
 main()
