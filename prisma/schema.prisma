@@ -61,12 +61,14 @@ model Sale {
   generalDiscountAmount Decimal              @default(0) @db.Decimal(12, 2)
   total                 Decimal              @db.Decimal(12, 2)
   notes                 String?
+  deletedAt             DateTime?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   items                 SaleItem[]
   idempotencyRecord     IdempotencyRecord?
 
   @@index([createdAt(sort: Desc)])
+  @@index([deletedAt, createdAt(sort: Desc)])
 }
 
 model SaleItem {

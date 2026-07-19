@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DiscountType, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { calculateSale } from '../common/money/sale-calculator';
@@ -28,8 +28,9 @@ const LIST_ITEM_SELECT = {
   updatedAt: true,
   product: { select: { id: true, name: true } },
   motif: { select: { id: true, name: true } },
-  // intentionally omit imageBase64
 } satisfies Prisma.SaleItemSelect;
+
+const activeSaleWhere: Prisma.SaleWhereInput = { deletedAt: null };
 
 @Injectable()
 export class SalesService {
@@ -55,7 +56,7 @@ export class SalesService {
     const from = parseFromDate(params.from);
     const to = parseToDate(params.to);
 
-    const where: Prisma.SaleWhereInput = {};
+    const where: Prisma.SaleWhereInput = { ...activeSaleWhere };
     if (from || to) {
       where.createdAt = {};
       if (from) where.createdAt.gte = from;
@@ -89,8 +90,8 @@ export class SalesService {
   }
 
   async findOne(id: string, includeImages = true) {
-    const sale = await this.prisma.sale.findUnique({
-      where: { id },
+    const sale = await this.prisma.sale.findFirst({
+      where: { id, ...activeSaleWhere },
       include: {
         items: {
           include: {
@@ -112,6 +113,42 @@ export class SalesService {
     return sale;
   }
 
+  async softDelete(id: string) {
+    await this.findOne(id, false);
+    await this.prisma.sale.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    return { id, deleted: true };
+  }
+
+  async update(id: string, dto: CreateSaleDto) {
+    await this.findOne(id, false);
+    const { calc, productMap } = await this.prepareSaleCalculation(dto);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.saleItem.deleteMany({ where: { saleId: id } });
+      await tx.sale.update({
+        where: { id },
+        data: {
+          subtotal: new Prisma.Decimal(calc.subtotal.toString()),
+          generalDiscountType: dto.generalDiscountType,
+          generalDiscountValue: new Prisma.Decimal(
+            dto.generalDiscountValue ?? 0,
+          ),
+          generalDiscountAmount: new Prisma.Decimal(
+            calc.generalDiscountAmount.toString(),
+          ),
+          total: new Prisma.Decimal(calc.total.toString()),
+          notes: dto.notes ? sanitizeText(dto.notes, 500) : null,
+        },
+      });
+      await this.persistItems(tx, id, dto, calc, productMap);
+    });
+
+    return this.findOne(id);
+  }
+
   async create(dto: CreateSaleDto, idempotencyKey: string) {
     if (!idempotencyKey?.trim()) {
       throw new BadRequestException(
@@ -127,6 +164,57 @@ export class SalesService {
       return this.findOne(existing.saleId);
     }
 
+    const { calc, productMap } = await this.prepareSaleCalculation(dto);
+
+    try {
+      const saleId = await this.prisma.$transaction(async (tx) => {
+        const again = await tx.idempotencyRecord.findUnique({ where: { key } });
+        if (again) {
+          return again.saleId;
+        }
+
+        const sale = await tx.sale.create({
+          data: {
+            subtotal: new Prisma.Decimal(calc.subtotal.toString()),
+            generalDiscountType: dto.generalDiscountType,
+            generalDiscountValue: new Prisma.Decimal(
+              dto.generalDiscountValue ?? 0,
+            ),
+            generalDiscountAmount: new Prisma.Decimal(
+              calc.generalDiscountAmount.toString(),
+            ),
+            total: new Prisma.Decimal(calc.total.toString()),
+            notes: dto.notes ? sanitizeText(dto.notes, 500) : null,
+          },
+        });
+
+        await this.persistItems(tx, sale.id, dto, calc, productMap);
+
+        await tx.idempotencyRecord.create({
+          data: { key, saleId: sale.id },
+        });
+
+        return sale.id;
+      });
+
+      return this.findOne(saleId);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const record = await this.prisma.idempotencyRecord.findUnique({
+          where: { key },
+        });
+        if (record) {
+          return this.findOne(record.saleId);
+        }
+      }
+      throw err;
+    }
+  }
+
+  private async prepareSaleCalculation(dto: CreateSaleDto) {
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -154,9 +242,8 @@ export class SalesService {
       };
     });
 
-    let calc;
     try {
-      calc = calculateSale({
+      const calc = calculateSale({
         items: calcInputs,
         generalDiscountType: dto.generalDiscountType as
           | 'NONE'
@@ -164,105 +251,69 @@ export class SalesService {
           | 'PERCENTAGE',
         generalDiscountValue: dto.generalDiscountValue ?? 0,
       });
+      return { calc, productMap };
     } catch (err) {
       throw new BadRequestException(
         err instanceof Error ? err.message : 'Error de cálculo',
       );
     }
+  }
 
-    try {
-      const saleId = await this.prisma.$transaction(async (tx) => {
-        const again = await tx.idempotencyRecord.findUnique({ where: { key } });
-        if (again) {
-          return again.saleId;
-        }
+  private async persistItems(
+    tx: Prisma.TransactionClient,
+    saleId: string,
+    dto: CreateSaleDto,
+    calc: ReturnType<typeof calculateSale>,
+    productMap: Map<string, { id: string; defaultPrice: Prisma.Decimal }>,
+  ) {
+    for (let i = 0; i < dto.items.length; i++) {
+      const item = dto.items[i];
+      const line = calc.items[i];
+      const product = productMap.get(item.productId)!;
+      const motifName = sanitizeText(item.motifName, 120);
+      const normalizedName = normalizeText(motifName);
 
-        const sale = await tx.sale.create({
-          data: {
-            subtotal: new Prisma.Decimal(calc.subtotal.toString()),
-            generalDiscountType: dto.generalDiscountType,
-            generalDiscountValue: new Prisma.Decimal(
-              dto.generalDiscountValue ?? 0,
-            ),
-            generalDiscountAmount: new Prisma.Decimal(
-              calc.generalDiscountAmount.toString(),
-            ),
-            total: new Prisma.Decimal(calc.total.toString()),
-            notes: dto.notes ? sanitizeText(dto.notes, 500) : null,
+      let motif = await tx.motif.findUnique({ where: { normalizedName } });
+      if (!motif) {
+        motif = await tx.motif.create({
+          data: { name: motifName, normalizedName },
+        });
+      }
+
+      await tx.productMotif.upsert({
+        where: {
+          productId_motifId: {
+            productId: product.id,
+            motifId: motif.id,
           },
-        });
-
-        for (let i = 0; i < dto.items.length; i++) {
-          const item = dto.items[i];
-          const line = calc.items[i];
-          const product = productMap.get(item.productId)!;
-          const motifName = sanitizeText(item.motifName, 120);
-          const normalizedName = normalizeText(motifName);
-
-          let motif = await tx.motif.findUnique({ where: { normalizedName } });
-          if (!motif) {
-            motif = await tx.motif.create({
-              data: { name: motifName, normalizedName },
-            });
-          }
-
-          await tx.productMotif.upsert({
-            where: {
-              productId_motifId: {
-                productId: product.id,
-                motifId: motif.id,
-              },
-            },
-            create: { productId: product.id, motifId: motif.id },
-            update: {},
-          });
-
-          const unitPrice =
-            item.unitPrice !== undefined && item.unitPrice !== null
-              ? item.unitPrice
-              : product.defaultPrice.toString();
-
-          await tx.saleItem.create({
-            data: {
-              saleId: sale.id,
-              productId: product.id,
-              motifId: motif.id,
-              quantity: item.quantity,
-              unitPrice: new Prisma.Decimal(unitPrice),
-              lineSubtotal: new Prisma.Decimal(line.lineSubtotal.toString()),
-              discountType: item.discountType,
-              discountValue: new Prisma.Decimal(item.discountValue ?? 0),
-              discountAmount: new Prisma.Decimal(line.discountAmount.toString()),
-              lineTotal: new Prisma.Decimal(line.lineTotal.toString()),
-              imageBase64: item.imageBase64 || null,
-              imageMimeType: item.imageBase64
-                ? item.imageMimeType || 'image/jpeg'
-                : null,
-            },
-          });
-        }
-
-        await tx.idempotencyRecord.create({
-          data: { key, saleId: sale.id },
-        });
-
-        return sale.id;
+        },
+        create: { productId: product.id, motifId: motif.id },
+        update: {},
       });
 
-      return this.findOne(saleId);
-    } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        const record = await this.prisma.idempotencyRecord.findUnique({
-          where: { key },
-        });
-        if (record) {
-          return this.findOne(record.saleId);
-        }
-      }
-      throw err;
+      const unitPrice =
+        item.unitPrice !== undefined && item.unitPrice !== null
+          ? item.unitPrice
+          : product.defaultPrice.toString();
+
+      await tx.saleItem.create({
+        data: {
+          saleId,
+          productId: product.id,
+          motifId: motif.id,
+          quantity: item.quantity,
+          unitPrice: new Prisma.Decimal(unitPrice),
+          lineSubtotal: new Prisma.Decimal(line.lineSubtotal.toString()),
+          discountType: item.discountType,
+          discountValue: new Prisma.Decimal(item.discountValue ?? 0),
+          discountAmount: new Prisma.Decimal(line.discountAmount.toString()),
+          lineTotal: new Prisma.Decimal(line.lineTotal.toString()),
+          imageBase64: item.imageBase64 || null,
+          imageMimeType: item.imageBase64
+            ? item.imageMimeType || 'image/jpeg'
+            : null,
+        },
+      });
     }
   }
 

@@ -11,7 +11,7 @@ describe('SalesService', () => {
   let prisma: {
     idempotencyRecord: { findUnique: jest.Mock; create: jest.Mock };
     product: { findMany: jest.Mock };
-    sale: { findUnique: jest.Mock; create: jest.Mock };
+    sale: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
 
@@ -33,6 +33,7 @@ describe('SalesService', () => {
       },
       sale: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         create: jest.fn(),
       },
       $transaction: jest.fn(),
@@ -79,7 +80,7 @@ describe('SalesService', () => {
       saleId: 'sale-1',
     });
     const saleDetail = { id: 'sale-1', items: [], total: new Decimal(12000) };
-    prisma.sale.findUnique.mockResolvedValue(saleDetail);
+    prisma.sale.findFirst.mockResolvedValue(saleDetail);
 
     const result = await service.create(
       {
@@ -133,7 +134,7 @@ describe('SalesService', () => {
       return fn(tx);
     });
 
-    prisma.sale.findUnique.mockResolvedValue(createdSale);
+    prisma.sale.findFirst.mockResolvedValue(createdSale);
 
     await service.create(
       {
@@ -189,7 +190,7 @@ describe('SalesService', () => {
       },
     ]);
 
-    prisma.sale.findUnique.mockResolvedValue({ id: 'sale-multi', items: [] });
+    prisma.sale.findFirst.mockResolvedValue({ id: 'sale-multi', items: [] });
 
     await service.create(
       {

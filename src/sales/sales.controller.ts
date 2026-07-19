@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -50,5 +52,17 @@ export class SalesController {
     @Headers('idempotency-key') idempotencyKey: string,
   ) {
     return this.salesService.create(dto, idempotencyKey);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Editar venta (recalcula totales en backend)' })
+  update(@Param('id') id: string, @Body() dto: CreateSaleDto) {
+    return this.salesService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar venta (soft delete, fuera de stats)' })
+  remove(@Param('id') id: string) {
+    return this.salesService.softDelete(id);
   }
 }

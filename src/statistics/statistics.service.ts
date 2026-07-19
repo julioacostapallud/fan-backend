@@ -10,11 +10,13 @@ export class StatisticsService {
   private buildDateFilter(from?: string, to?: string): Prisma.SaleWhereInput {
     const fromDate = parseFromDate(from);
     const toDate = parseToDate(to);
-    if (!fromDate && !toDate) return {};
+    const where: Prisma.SaleWhereInput = { deletedAt: null };
+    if (!fromDate && !toDate) return where;
     const createdAt: Prisma.DateTimeFilter = {};
     if (fromDate) createdAt.gte = fromDate;
     if (toDate) createdAt.lte = toDate;
-    return { createdAt };
+    where.createdAt = createdAt;
+    return where;
   }
 
   async summary(from?: string, to?: string) {
