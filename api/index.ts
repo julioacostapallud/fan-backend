@@ -5,6 +5,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
 import { AppModule } from '../src/app.module';
+import {
+  buildCorsOptions,
+  helmetOptions,
+} from '../src/common/config/http-security';
 
 let cachedApp: INestApplication | undefined;
 let cachedExpress: Express | undefined;
@@ -20,7 +24,7 @@ async function bootstrap(): Promise<Express> {
 
   expressApp.use(express.json({ limit: bodyLimit }));
   expressApp.use(express.urlencoded({ extended: true, limit: bodyLimit }));
-  expressApp.use(helmet());
+  expressApp.use(helmet(helmetOptions));
 
   const app = await NestFactory.create(
     AppModule,
@@ -28,12 +32,7 @@ async function bootstrap(): Promise<Express> {
     { bodyParser: false },
   );
 
-  const corsOrigin = process.env.CORS_ORIGIN ?? '*';
-  app.enableCors({
-    origin: corsOrigin.split(',').map((o) => o.trim()),
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Idempotency-Key', 'Authorization'],
-  });
+  app.enableCors(buildCorsOptions());
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(

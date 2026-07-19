@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
+import { buildCorsOptions, helmetOptions } from './common/config/http-security';
 
 export async function createApp() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -14,14 +15,8 @@ export async function createApp() {
 
   app.use(json({ limit: bodyLimit }));
   app.use(urlencoded({ extended: true, limit: bodyLimit }));
-  app.use(helmet());
-
-  const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
-  app.enableCors({
-    origin: corsOrigin.split(',').map((o) => o.trim()),
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Idempotency-Key', 'Authorization'],
-  });
+  app.use(helmet(helmetOptions));
+  app.enableCors(buildCorsOptions());
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
