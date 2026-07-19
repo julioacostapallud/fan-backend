@@ -16,6 +16,14 @@ export class StatisticsController {
     return this.statisticsService.bySellers(from, to);
   }
 
+  @Get('days')
+  @ApiOperation({
+    summary: 'Días de evento cerrados (para solapas de stats)',
+  })
+  days() {
+    return this.statisticsService.availableDays();
+  }
+
   @Get('restock')
   @ApiOperation({ summary: 'Reposición: unidades por producto y motivo' })
   restock() {

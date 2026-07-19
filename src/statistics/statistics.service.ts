@@ -1,7 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { formatInTimeZone } from 'date-fns-tz';
 import { PrismaService } from '../prisma/prisma.service';
-import { parseFromDate, parseToDate } from '../common/utils/dates';
+import {
+  BUSINESS_TZ,
+  eachIsoDay,
+  parseFromDate,
+  parseToDate,
+  todayIsoDate,
+  yesterdayIsoDate,
+} from '../common/utils/dates';
 
 @Injectable()
 export class StatisticsService {
@@ -17,6 +25,29 @@ export class StatisticsService {
     if (toDate) createdAt.lte = toDate;
     where.createdAt = createdAt;
     return where;
+  }
+
+  /**
+   * Días de evento ya cerrados (desde la 1ª venta hasta ayer, TZ AR).
+   * Hoy no se incluye: va en la solapa "Hoy".
+   */
+  async availableDays() {
+    const today = todayIsoDate();
+    const first = await this.prisma.sale.findFirst({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+
+    if (!first) {
+      return { days: [] as string[], today };
+    }
+
+    const firstDay = formatInTimeZone(first.createdAt, BUSINESS_TZ, 'yyyy-MM-dd');
+    const yesterday = yesterdayIsoDate();
+    const days = firstDay < today ? eachIsoDay(firstDay, yesterday) : [];
+
+    return { days, today };
   }
 
   async summary(from?: string, to?: string) {

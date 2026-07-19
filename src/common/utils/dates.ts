@@ -1,5 +1,5 @@
-import { fromZonedTime, toZonedTime } from 'date-fns-tz';
-import { endOfDay, startOfDay } from 'date-fns';
+import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { eachDayOfInterval, endOfDay, format, parseISO, startOfDay, subDays } from 'date-fns';
 
 export const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
 
@@ -25,6 +25,25 @@ export function parseToDate(value?: string): Date | undefined {
     return fromZonedTime(local, BUSINESS_TZ);
   }
   return new Date(value);
+}
+
+export function todayIsoDate(): string {
+  return formatInTimeZone(new Date(), BUSINESS_TZ, 'yyyy-MM-dd');
+}
+
+/** Calendar days from `fromIso` through `toIso` inclusive (yyyy-MM-dd). */
+export function eachIsoDay(fromIso: string, toIso: string): string[] {
+  if (fromIso > toIso) return [];
+  return eachDayOfInterval({
+    start: parseISO(fromIso),
+    end: parseISO(toIso),
+  }).map((d) => format(d, 'yyyy-MM-dd'));
+}
+
+/** Yesterday's calendar date in business TZ (yyyy-MM-dd). */
+export function yesterdayIsoDate(): string {
+  const todayLocal = startOfDay(toZonedTime(new Date(), BUSINESS_TZ));
+  return format(subDays(todayLocal, 1), 'yyyy-MM-dd');
 }
 
 export function todayRangeUtc(): { from: Date; to: Date } {
