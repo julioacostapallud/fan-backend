@@ -70,6 +70,7 @@ describe('SalesService', () => {
           generalDiscountValue: 0,
         },
         '',
+        'user-1',
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -97,6 +98,7 @@ describe('SalesService', () => {
         generalDiscountValue: 0,
       },
       'abc',
+      'user-1',
     );
 
     expect(result).toEqual(saleDetail);
@@ -152,6 +154,7 @@ describe('SalesService', () => {
         generalDiscountValue: 0,
       },
       'key-price',
+      'user-1',
     );
 
     expect(prisma.$transaction).toHaveBeenCalled();
@@ -216,6 +219,7 @@ describe('SalesService', () => {
         generalDiscountValue: 500,
       },
       'key-multi',
+      'user-1',
     );
 
     expect(prisma.$transaction).toHaveBeenCalled();

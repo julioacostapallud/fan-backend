@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -8,6 +9,30 @@ function normalizeName(name: string): string {
 }
 
 async function main() {
+  const users = [
+    { id: 'user_maxifan', username: 'maxifan' },
+    { id: 'user_camifan', username: 'camifan' },
+    { id: 'user_lucifan', username: 'lucifan' },
+    { id: 'user_juliofan', username: 'juliofan' },
+  ];
+
+  for (const u of users) {
+    const passwordHash = await bcrypt.hash(u.username, 10);
+    await prisma.user.upsert({
+      where: { id: u.id },
+      create: {
+        id: u.id,
+        username: u.username,
+        displayName: u.username,
+        passwordHash,
+      },
+      update: {
+        username: u.username,
+        displayName: u.username,
+      },
+    });
+  }
+
   // Precios de ejemplo — modificar antes del evento real
   const productDefs = [
     { name: 'Chapa A4', defaultPrice: '5000.00' },

@@ -150,6 +150,90 @@ export class StatisticsService {
       .sort((a, b) => a.productName.localeCompare(b.productName, 'es'));
   }
 
+  async bySellers(from?: string, to?: string) {
+    const where = this.buildDateFilter(from, to);
+    const [users, sales] = await Promise.all([
+      this.prisma.user.findMany({
+        orderBy: { displayName: 'asc' },
+        select: { id: true, displayName: true, username: true },
+      }),
+      this.prisma.sale.findMany({
+        where,
+        select: {
+          userId: true,
+          total: true,
+          items: { select: { quantity: true } },
+        },
+      }),
+    ]);
+
+    type Agg = { products: number; amount: Prisma.Decimal };
+    const map = new Map<string, Agg>();
+    for (const sale of sales) {
+      let agg = map.get(sale.userId);
+      if (!agg) {
+        agg = { products: 0, amount: new Prisma.Decimal(0) };
+        map.set(sale.userId, agg);
+      }
+      agg.amount = agg.amount.plus(sale.total);
+      for (const item of sale.items) {
+        agg.products += item.quantity;
+      }
+    }
+
+    const sellers = users.map((u) => {
+      const agg = map.get(u.id);
+      return {
+        userId: u.id,
+        name: u.displayName || u.username,
+        products: agg?.products ?? 0,
+        amount: agg?.amount ?? new Prisma.Decimal(0),
+      };
+    });
+
+    const total = sellers.reduce(
+      (acc, s) => ({
+        products: acc.products + s.products,
+        amount: acc.amount.plus(s.amount),
+      }),
+      { products: 0, amount: new Prisma.Decimal(0) },
+    );
+
+    return { sellers, total };
+  }
+
+  async restock() {
+    const items = await this.prisma.saleItem.findMany({
+      where: { sale: { deletedAt: null } },
+      select: {
+        quantity: true,
+        product: { select: { name: true } },
+        motif: { select: { name: true } },
+      },
+    });
+
+    const map = new Map<string, { productName: string; motifName: string; units: number }>();
+    for (const item of items) {
+      const key = `${item.product.name}||${item.motif.name}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.units += item.quantity;
+      } else {
+        map.set(key, {
+          productName: item.product.name,
+          motifName: item.motif.name,
+          units: item.quantity,
+        });
+      }
+    }
+
+    return [...map.values()].sort((a, b) => {
+      const byProduct = a.productName.localeCompare(b.productName, 'es');
+      if (byProduct !== 0) return byProduct;
+      return a.motifName.localeCompare(b.motifName, 'es');
+    });
+  }
+
   async byProduct(productId: string, from?: string, to?: string) {
     const all = await this.byProducts(from, to);
     const found = all.find((p) => p.productId === productId);

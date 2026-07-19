@@ -74,6 +74,7 @@ export class SalesService {
           items: {
             select: LIST_ITEM_SELECT,
           },
+          user: { select: { id: true, username: true, displayName: true } },
         },
       }),
     ]);
@@ -99,6 +100,7 @@ export class SalesService {
             motif: { select: { id: true, name: true } },
           },
         },
+        user: { select: { id: true, username: true, displayName: true } },
       },
     });
     if (!sale) {
@@ -149,7 +151,7 @@ export class SalesService {
     return this.findOne(id);
   }
 
-  async create(dto: CreateSaleDto, idempotencyKey: string) {
+  async create(dto: CreateSaleDto, idempotencyKey: string, userId: string) {
     if (!idempotencyKey?.trim()) {
       throw new BadRequestException(
         'Se requiere el header Idempotency-Key para registrar una venta',
@@ -175,6 +177,7 @@ export class SalesService {
 
         const sale = await tx.sale.create({
           data: {
+            userId,
             subtotal: new Prisma.Decimal(calc.subtotal.toString()),
             generalDiscountType: dto.generalDiscountType,
             generalDiscountValue: new Prisma.Decimal(
@@ -332,7 +335,10 @@ export class SalesService {
 
   private toListDto(
     sale: Prisma.SaleGetPayload<{
-      include: { items: { select: typeof LIST_ITEM_SELECT } };
+      include: {
+        items: { select: typeof LIST_ITEM_SELECT };
+        user: { select: { id: true; username: true; displayName: true } };
+      };
     }>,
   ) {
     const totalUnits = sale.items.reduce((acc, i) => acc + i.quantity, 0);
@@ -356,6 +362,7 @@ export class SalesService {
       totalUnits,
       productSummary,
       itemDiscountsTotal: itemDiscounts,
+      user: sale.user,
       items: sale.items.map((item) => ({
         id: item.id,
         productId: item.productId,

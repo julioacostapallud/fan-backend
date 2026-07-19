@@ -9,11 +9,13 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { CurrentUser, type AuthUser } from '../auth/auth.guard';
 
 @ApiTags('sales')
+@ApiBearerAuth()
 @Controller('sales')
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
@@ -50,8 +52,9 @@ export class SalesController {
   create(
     @Body() dto: CreateSaleDto,
     @Headers('idempotency-key') idempotencyKey: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.salesService.create(dto, idempotencyKey);
+    return this.salesService.create(dto, idempotencyKey, user.id);
   }
 
   @Patch(':id')
