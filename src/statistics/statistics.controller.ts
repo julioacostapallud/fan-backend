@@ -24,6 +24,13 @@ export class StatisticsController {
     return this.statisticsService.availableDays();
   }
 
+  @Get('top-motifs')
+  @ApiOperation({ summary: 'Top motivos vendidos por día operativo' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Top N por día (default 10, max 20)' })
+  topMotifs(@Query('limit') limit?: string) {
+    return this.statisticsService.topMotifsByDay(limit ? Number(limit) : 10);
+  }
+
   @Get('restock')
   @ApiOperation({ summary: 'Reposición: unidades por producto y motivo' })
   restock() {

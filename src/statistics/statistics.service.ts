@@ -280,4 +280,39 @@ export class StatisticsService {
       }
     );
   }
+
+  /** Top motivos por día operativo (06→06), más vendidos primero. */
+  async topMotifsByDay(limit = 10) {
+    const take = Math.min(Math.max(Number(limit) || 10, 1), 20);
+    const items = await this.prisma.saleItem.findMany({
+      where: { sale: { deletedAt: null } },
+      select: {
+        quantity: true,
+        motif: { select: { name: true } },
+        sale: { select: { createdAt: true } },
+      },
+    });
+
+    const byDay = new Map<string, Map<string, number>>();
+    for (const item of items) {
+      const day = toBusinessDayIso(item.sale.createdAt);
+      let motifs = byDay.get(day);
+      if (!motifs) {
+        motifs = new Map();
+        byDay.set(day, motifs);
+      }
+      motifs.set(item.motif.name, (motifs.get(item.motif.name) ?? 0) + item.quantity);
+    }
+
+    const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a));
+    return {
+      days: days.map((day) => ({
+        day,
+        motifs: [...byDay.get(day)!.entries()]
+          .map(([motifName, units]) => ({ motifName, units }))
+          .sort((a, b) => b.units - a.units || a.motifName.localeCompare(b.motifName, 'es'))
+          .slice(0, take),
+      })),
+    };
+  }
 }
