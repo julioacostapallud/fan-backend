@@ -52,7 +52,7 @@ export class SalesService {
     to?: string;
   }) {
     const page = Math.max(params.page ?? 1, 1);
-    const limit = Math.min(Math.max(params.limit ?? 20, 1), 50);
+    const limit = Math.min(Math.max(params.limit ?? 20, 1), 200);
     const from = parseFromDate(params.from);
     const to = parseToDate(params.to);
 
