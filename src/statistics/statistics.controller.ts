@@ -37,6 +37,12 @@ export class StatisticsController {
     return this.statisticsService.dailyTotals();
   }
 
+  @Get('revenue-progress')
+  @ApiOperation({ summary: 'Recaudación acumulada venta a venta (gráfico General)' })
+  revenueProgress() {
+    return this.statisticsService.revenueProgress();
+  }
+
   @Get('restock')
   @ApiOperation({ summary: 'Reposición: unidades por producto y motivo' })
   restock() {

@@ -312,6 +312,39 @@ export class StatisticsService {
     };
   }
 
+  /** Avance acumulado de recaudación venta a venta (gráfico General). */
+  async revenueProgress() {
+    const sales = await this.prisma.sale.findMany({
+      where: { deletedAt: null },
+      select: { createdAt: true, total: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (!sales.length) {
+      return { points: [] as Array<{ at: Date; amount: Prisma.Decimal; cumulative: Prisma.Decimal }> };
+    }
+
+    let cumulative = new Prisma.Decimal(0);
+    const points: Array<{ at: Date; amount: Prisma.Decimal; cumulative: Prisma.Decimal }> = [
+      {
+        at: sales[0].createdAt,
+        amount: new Prisma.Decimal(0),
+        cumulative: new Prisma.Decimal(0),
+      },
+    ];
+
+    for (const sale of sales) {
+      cumulative = cumulative.plus(sale.total);
+      points.push({
+        at: sale.createdAt,
+        amount: sale.total,
+        cumulative,
+      });
+    }
+
+    return { points };
+  }
+
   /** Top motivos por día operativo (06→06), más vendidos primero. */
   async topMotifsByDay(limit = 10) {
     const take = Math.min(Math.max(Number(limit) || 10, 1), 20);
