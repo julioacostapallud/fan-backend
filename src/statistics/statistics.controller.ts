@@ -31,6 +31,12 @@ export class StatisticsController {
     return this.statisticsService.topMotifsByDay(limit ? Number(limit) : 10);
   }
 
+  @Get('daily-totals')
+  @ApiOperation({ summary: 'Montos totales por día operativo (gráfico General)' })
+  dailyTotals() {
+    return this.statisticsService.dailyTotals();
+  }
+
   @Get('restock')
   @ApiOperation({ summary: 'Reposición: unidades por producto y motivo' })
   restock() {

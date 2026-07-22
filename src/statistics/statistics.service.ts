@@ -281,6 +281,37 @@ export class StatisticsService {
     );
   }
 
+  /** Totales de ventas por día operativo (06→06), para el gráfico General. */
+  async dailyTotals() {
+    const sales = await this.prisma.sale.findMany({
+      where: { deletedAt: null },
+      select: { createdAt: true, total: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (!sales.length) {
+      return { days: [] as Array<{ day: string; amount: Prisma.Decimal }> };
+    }
+
+    const map = new Map<string, Prisma.Decimal>();
+    for (const sale of sales) {
+      const day = toBusinessDayIso(sale.createdAt);
+      map.set(day, (map.get(day) ?? new Prisma.Decimal(0)).plus(sale.total));
+    }
+
+    const sorted = [...map.keys()].sort();
+    const first = sorted[0];
+    const today = todayIsoDate();
+    const last = today > sorted[sorted.length - 1] ? today : sorted[sorted.length - 1];
+
+    return {
+      days: eachIsoDay(first, last).map((day) => ({
+        day,
+        amount: map.get(day) ?? new Prisma.Decimal(0),
+      })),
+    };
+  }
+
   /** Top motivos por día operativo (06→06), más vendidos primero. */
   async topMotifsByDay(limit = 10) {
     const take = Math.min(Math.max(Number(limit) || 10, 1), 20);
