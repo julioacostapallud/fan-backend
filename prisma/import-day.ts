@@ -182,6 +182,7 @@ async function main() {
 
     const sale = await prisma.sale.create({
       data: {
+        eventId: 'event_bienal_2026',
         userId,
         subtotal: price,
         generalDiscountType: DiscountType.NONE,
@@ -201,6 +202,7 @@ async function main() {
         motifId,
         quantity: 1,
         unitPrice: price,
+        unitCost: price.mul(0.4).toDecimalPlaces(2),
         lineSubtotal: price,
         discountType: DiscountType.NONE,
         discountValue: new Decimal(0),

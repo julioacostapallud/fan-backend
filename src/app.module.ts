@@ -9,6 +9,7 @@ import { MotifsModule } from './motifs/motifs.module';
 import { SalesModule } from './sales/sales.module';
 import { StatisticsModule } from './statistics/statistics.module';
 import { AuthModule } from './auth/auth.module';
+import { EventsModule } from './events/events.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { DecimalSerializerInterceptor } from './common/interceptors/decimal-serializer.interceptor';
 import { JwtAuthGuard } from './auth/auth.guard';
@@ -25,6 +26,7 @@ import { JwtAuthGuard } from './auth/auth.guard';
     PrismaModule,
     AuthModule,
     HealthModule,
+    EventsModule,
     ProductsModule,
     MotifsModule,
     SalesModule,

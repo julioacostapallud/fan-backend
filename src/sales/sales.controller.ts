@@ -21,18 +21,21 @@ export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar ventas (sin imágenes base64)' })
+  @ApiOperation({ summary: 'Listar ventas de un evento (sin imágenes base64)' })
+  @ApiQuery({ name: 'eventId', required: true })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })
   findAll(
+    @Query('eventId') eventId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
     return this.salesService.findAll({
+      eventId,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
       from,

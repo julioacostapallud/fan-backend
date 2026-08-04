@@ -18,6 +18,7 @@ const LIST_ITEM_SELECT = {
   motifId: true,
   quantity: true,
   unitPrice: true,
+  unitCost: true,
   lineSubtotal: true,
   discountType: true,
   discountValue: true,
@@ -31,6 +32,13 @@ const LIST_ITEM_SELECT = {
 } satisfies Prisma.SaleItemSelect;
 
 const activeSaleWhere: Prisma.SaleWhereInput = { deletedAt: null };
+
+type EventProductRow = {
+  productId: string;
+  price: Prisma.Decimal;
+  cost: Prisma.Decimal;
+  product: { id: string; name: string };
+};
 
 @Injectable()
 export class SalesService {
@@ -46,17 +54,25 @@ export class SalesService {
   }
 
   async findAll(params: {
+    eventId: string;
     page?: number;
     limit?: number;
     from?: string;
     to?: string;
   }) {
+    if (!params.eventId?.trim()) {
+      throw new BadRequestException('eventId es obligatorio');
+    }
+    await this.ensureEvent(params.eventId);
     const page = Math.max(params.page ?? 1, 1);
     const limit = Math.min(Math.max(params.limit ?? 20, 1), 50);
     const from = parseFromDate(params.from);
     const to = parseToDate(params.to);
 
-    const where: Prisma.SaleWhereInput = { ...activeSaleWhere };
+    const where: Prisma.SaleWhereInput = {
+      ...activeSaleWhere,
+      eventId: params.eventId,
+    };
     if (from || to) {
       where.createdAt = {};
       if (from) where.createdAt.gte = from;
@@ -125,8 +141,11 @@ export class SalesService {
   }
 
   async update(id: string, dto: CreateSaleDto) {
-    await this.findOne(id, false);
-    const { calc, productMap } = await this.prepareSaleCalculation(dto);
+    const existing = await this.findOne(id, false);
+    if (dto.eventId !== existing.eventId) {
+      throw new BadRequestException('No se puede cambiar el evento de una venta');
+    }
+    const { calc, eventProductMap } = await this.prepareSaleCalculation(dto);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.saleItem.deleteMany({ where: { saleId: id } });
@@ -145,7 +164,7 @@ export class SalesService {
           notes: dto.notes ? sanitizeText(dto.notes, 500) : null,
         },
       });
-      await this.persistItems(tx, id, dto, calc, productMap);
+      await this.persistItems(tx, id, dto, calc, eventProductMap);
     });
 
     return this.findOne(id);
@@ -166,7 +185,7 @@ export class SalesService {
       return this.findOne(existing.saleId);
     }
 
-    const { calc, productMap } = await this.prepareSaleCalculation(dto);
+    const { calc, eventProductMap } = await this.prepareSaleCalculation(dto);
 
     try {
       const saleId = await this.prisma.$transaction(async (tx) => {
@@ -177,6 +196,7 @@ export class SalesService {
 
         const sale = await tx.sale.create({
           data: {
+            eventId: dto.eventId,
             userId,
             subtotal: new Prisma.Decimal(calc.subtotal.toString()),
             generalDiscountType: dto.generalDiscountType,
@@ -191,7 +211,7 @@ export class SalesService {
           },
         });
 
-        await this.persistItems(tx, sale.id, dto, calc, productMap);
+        await this.persistItems(tx, sale.id, dto, calc, eventProductMap);
 
         await tx.idempotencyRecord.create({
           data: { key, saleId: sale.id },
@@ -217,26 +237,38 @@ export class SalesService {
     }
   }
 
+  private async ensureEvent(eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException('Evento no encontrado');
+    return event;
+  }
+
   private async prepareSaleCalculation(dto: CreateSaleDto) {
+    await this.ensureEvent(dto.eventId);
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
-    const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
+    const eventProducts = await this.prisma.eventProduct.findMany({
+      where: { eventId: dto.eventId, productId: { in: productIds } },
+      include: { product: { select: { id: true, name: true } } },
     });
-    if (products.length !== productIds.length) {
-      throw new BadRequestException('Uno o más productos no existen');
+    if (eventProducts.length !== productIds.length) {
+      throw new BadRequestException(
+        'Uno o más productos no están cargados en este evento',
+      );
     }
-    const productMap = new Map(products.map((p) => [p.id, p]));
+    const eventProductMap = new Map(
+      eventProducts.map((p) => [p.productId, p as EventProductRow]),
+    );
 
     for (const item of dto.items) {
       this.validateImage(item.imageBase64, item.imageMimeType);
     }
 
     const calcInputs = dto.items.map((item) => {
-      const product = productMap.get(item.productId)!;
+      const ep = eventProductMap.get(item.productId)!;
       const unitPrice =
         item.unitPrice !== undefined && item.unitPrice !== null
           ? item.unitPrice
-          : product.defaultPrice.toString();
+          : ep.price.toString();
       return {
         quantity: item.quantity,
         unitPrice,
@@ -254,7 +286,7 @@ export class SalesService {
           | 'PERCENTAGE',
         generalDiscountValue: dto.generalDiscountValue ?? 0,
       });
-      return { calc, productMap };
+      return { calc, eventProductMap };
     } catch (err) {
       throw new BadRequestException(
         err instanceof Error ? err.message : 'Error de cálculo',
@@ -267,12 +299,12 @@ export class SalesService {
     saleId: string,
     dto: CreateSaleDto,
     calc: ReturnType<typeof calculateSale>,
-    productMap: Map<string, { id: string; defaultPrice: Prisma.Decimal }>,
+    eventProductMap: Map<string, EventProductRow>,
   ) {
     for (let i = 0; i < dto.items.length; i++) {
       const item = dto.items[i];
       const line = calc.items[i];
-      const product = productMap.get(item.productId)!;
+      const ep = eventProductMap.get(item.productId)!;
       const motifName = sanitizeText(item.motifName, 120);
       const normalizedName = normalizeText(motifName);
 
@@ -286,26 +318,27 @@ export class SalesService {
       await tx.productMotif.upsert({
         where: {
           productId_motifId: {
-            productId: product.id,
+            productId: ep.productId,
             motifId: motif.id,
           },
         },
-        create: { productId: product.id, motifId: motif.id },
+        create: { productId: ep.productId, motifId: motif.id },
         update: {},
       });
 
       const unitPrice =
         item.unitPrice !== undefined && item.unitPrice !== null
           ? item.unitPrice
-          : product.defaultPrice.toString();
+          : ep.price.toString();
 
       await tx.saleItem.create({
         data: {
           saleId,
-          productId: product.id,
+          productId: ep.productId,
           motifId: motif.id,
           quantity: item.quantity,
           unitPrice: new Prisma.Decimal(unitPrice),
+          unitCost: ep.cost,
           lineSubtotal: new Prisma.Decimal(line.lineSubtotal.toString()),
           discountType: item.discountType,
           discountValue: new Prisma.Decimal(item.discountValue ?? 0),
@@ -350,6 +383,7 @@ export class SalesService {
 
     return {
       id: sale.id,
+      eventId: sale.eventId,
       createdAt: sale.createdAt,
       updatedAt: sale.updatedAt,
       subtotal: sale.subtotal,
@@ -369,6 +403,7 @@ export class SalesService {
         motifId: item.motifId,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
+        unitCost: item.unitCost,
         lineSubtotal: item.lineSubtotal,
         discountType: item.discountType,
         discountValue: item.discountValue,

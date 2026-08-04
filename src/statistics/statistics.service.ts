@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -14,10 +14,27 @@ import {
 export class StatisticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildDateFilter(from?: string, to?: string): Prisma.SaleWhereInput {
+  private async ensureEvent(eventId: string) {
+    if (!eventId?.trim()) {
+      throw new BadRequestException('eventId es obligatorio');
+    }
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException('Evento no encontrado');
+    return event;
+  }
+
+  private dateOnlyIso(value: Date): string {
+    return value.toISOString().slice(0, 10);
+  }
+
+  private buildDateFilter(
+    eventId: string,
+    from?: string,
+    to?: string,
+  ): Prisma.SaleWhereInput {
     const fromDate = parseFromDate(from);
     const toDate = parseToDate(to);
-    const where: Prisma.SaleWhereInput = { deletedAt: null };
+    const where: Prisma.SaleWhereInput = { deletedAt: null, eventId };
     if (!fromDate && !toDate) return where;
     const createdAt: Prisma.DateTimeFilter = {};
     if (fromDate) createdAt.gte = fromDate;
@@ -27,30 +44,40 @@ export class StatisticsService {
   }
 
   /**
-   * Días de evento ya cerrados (desde la 1ª venta hasta ayer, día operativo 06→06 AR).
+   * Días cerrados del evento (desde max(inicio, 1ª venta) hasta min(ayer, fin evento)).
    * Hoy no se incluye: va en la solapa "Hoy".
    */
-  async availableDays() {
+  async availableDays(eventId: string) {
+    const event = await this.ensureEvent(eventId);
     const today = todayIsoDate();
+    const eventStart = this.dateOnlyIso(event.startDate);
+    const eventEnd = this.dateOnlyIso(event.endDate);
+
     const first = await this.prisma.sale.findFirst({
-      where: { deletedAt: null },
+      where: { deletedAt: null, eventId },
       orderBy: { createdAt: 'asc' },
       select: { createdAt: true },
     });
 
     if (!first) {
-      return { days: [] as string[], today };
+      return { days: [] as string[], today, eventStart, eventEnd };
     }
 
     const firstDay = toBusinessDayIso(first.createdAt);
+    const rangeStart = firstDay > eventStart ? firstDay : eventStart;
     const yesterday = yesterdayIsoDate();
-    const days = firstDay < today ? eachIsoDay(firstDay, yesterday) : [];
+    const rangeEnd = yesterday < eventEnd ? yesterday : eventEnd;
+    const days =
+      rangeStart <= rangeEnd && rangeStart < today
+        ? eachIsoDay(rangeStart, rangeEnd).filter((d) => d < today)
+        : [];
 
-    return { days, today };
+    return { days, today, eventStart, eventEnd };
   }
 
-  async summary(from?: string, to?: string) {
-    const where = this.buildDateFilter(from, to);
+  async summary(eventId: string, from?: string, to?: string) {
+    await this.ensureEvent(eventId);
+    const where = this.buildDateFilter(eventId, from, to);
     const sales = await this.prisma.sale.findMany({
       where,
       select: {
@@ -95,8 +122,9 @@ export class StatisticsService {
     };
   }
 
-  async byProducts(from?: string, to?: string) {
-    const where = this.buildDateFilter(from, to);
+  async byProducts(eventId: string, from?: string, to?: string) {
+    await this.ensureEvent(eventId);
+    const where = this.buildDateFilter(eventId, from, to);
     const items = await this.prisma.saleItem.findMany({
       where: { sale: where },
       select: {
@@ -180,8 +208,9 @@ export class StatisticsService {
       .sort((a, b) => a.productName.localeCompare(b.productName, 'es'));
   }
 
-  async bySellers(from?: string, to?: string) {
-    const where = this.buildDateFilter(from, to);
+  async bySellers(eventId: string, from?: string, to?: string) {
+    await this.ensureEvent(eventId);
+    const where = this.buildDateFilter(eventId, from, to);
     const [users, sales] = await Promise.all([
       this.prisma.user.findMany({
         orderBy: { displayName: 'asc' },
@@ -232,9 +261,10 @@ export class StatisticsService {
     return { sellers, total };
   }
 
-  async restock() {
+  async restock(eventId: string) {
+    await this.ensureEvent(eventId);
     const items = await this.prisma.saleItem.findMany({
-      where: { sale: { deletedAt: null } },
+      where: { sale: { deletedAt: null, eventId } },
       select: {
         quantity: true,
         product: { select: { name: true } },
@@ -264,8 +294,8 @@ export class StatisticsService {
     });
   }
 
-  async byProduct(productId: string, from?: string, to?: string) {
-    const all = await this.byProducts(from, to);
+  async byProduct(eventId: string, productId: string, from?: string, to?: string) {
+    const all = await this.byProducts(eventId, from, to);
     const found = all.find((p) => p.productId === productId);
     return (
       found ?? {
@@ -281,41 +311,41 @@ export class StatisticsService {
     );
   }
 
-  /** Totales de ventas por día operativo (06→06), para el gráfico General. */
-  async dailyTotals() {
+  async dailyTotals(eventId: string) {
+    const event = await this.ensureEvent(eventId);
+    const eventStart = this.dateOnlyIso(event.startDate);
+    const eventEnd = this.dateOnlyIso(event.endDate);
+
     const sales = await this.prisma.sale.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, eventId },
       select: { createdAt: true, total: true },
       orderBy: { createdAt: 'asc' },
     });
 
-    if (!sales.length) {
-      return { days: [] as Array<{ day: string; amount: Prisma.Decimal }> };
-    }
-
     const map = new Map<string, Prisma.Decimal>();
     for (const sale of sales) {
       const day = toBusinessDayIso(sale.createdAt);
+      if (day < eventStart || day > eventEnd) continue;
       map.set(day, (map.get(day) ?? new Prisma.Decimal(0)).plus(sale.total));
     }
 
-    const sorted = [...map.keys()].sort();
-    const first = sorted[0];
     const today = todayIsoDate();
-    const last = today > sorted[sorted.length - 1] ? today : sorted[sorted.length - 1];
+    const last = today < eventEnd ? today : eventEnd;
 
     return {
-      days: eachIsoDay(first, last).map((day) => ({
+      days: eachIsoDay(eventStart, last).map((day) => ({
         day,
         amount: map.get(day) ?? new Prisma.Decimal(0),
       })),
+      eventStart,
+      eventEnd,
     };
   }
 
-  /** Avance acumulado de recaudación venta a venta (gráfico General). */
-  async revenueProgress() {
+  async revenueProgress(eventId: string) {
+    await this.ensureEvent(eventId);
     const sales = await this.prisma.sale.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, eventId },
       select: { createdAt: true, total: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -345,11 +375,11 @@ export class StatisticsService {
     return { points };
   }
 
-  /** Top motivos por día operativo (06→06), más vendidos primero. */
-  async topMotifsByDay(limit = 10) {
+  async topMotifsByDay(eventId: string, limit = 10) {
+    await this.ensureEvent(eventId);
     const take = Math.min(Math.max(Number(limit) || 10, 1), 20);
     const items = await this.prisma.saleItem.findMany({
-      where: { sale: { deletedAt: null } },
+      where: { sale: { deletedAt: null, eventId } },
       select: {
         quantity: true,
         motif: { select: { name: true } },
@@ -376,6 +406,56 @@ export class StatisticsService {
           .map(([motifName, units]) => ({ motifName, units }))
           .sort((a, b) => b.units - a.units || a.motifName.localeCompare(b.motifName, 'es'))
           .slice(0, take),
+      })),
+    };
+  }
+
+  /** Totales económicos del evento para el dashboard General. */
+  async eventEconomics(eventId: string) {
+    const event = await this.ensureEvent(eventId);
+    const [expenses, sales] = await Promise.all([
+      this.prisma.eventExpense.findMany({
+        where: { eventId },
+        select: { amount: true, description: true, date: true },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.sale.findMany({
+        where: { deletedAt: null, eventId },
+        select: {
+          total: true,
+          items: {
+            select: { quantity: true, unitPrice: true, unitCost: true },
+          },
+        },
+      }),
+    ]);
+
+    let revenue = new Prisma.Decimal(0);
+    let contribution = new Prisma.Decimal(0);
+    for (const sale of sales) {
+      revenue = revenue.plus(sale.total);
+      for (const item of sale.items) {
+        contribution = contribution.plus(
+          item.unitPrice.minus(item.unitCost).mul(item.quantity),
+        );
+      }
+    }
+    const expensesTotal = expenses.reduce(
+      (acc, e) => acc.plus(e.amount),
+      new Prisma.Decimal(0),
+    );
+
+    return {
+      eventStart: this.dateOnlyIso(event.startDate),
+      eventEnd: this.dateOnlyIso(event.endDate),
+      expensesTotal: expensesTotal.toDecimalPlaces(2),
+      revenue: revenue.toDecimalPlaces(2),
+      contribution: contribution.toDecimalPlaces(2),
+      realProfit: contribution.minus(expensesTotal).toDecimalPlaces(2),
+      expenses: expenses.map((e) => ({
+        amount: e.amount,
+        description: e.description,
+        date: this.dateOnlyIso(e.date),
       })),
     };
   }

@@ -135,7 +135,58 @@ async function main() {
     });
   }
 
-  console.log('Seed completado: usuarios, productos y motivos.');
+  const event = await prisma.event.upsert({
+    where: { id: 'event_bienal_2026' },
+    create: {
+      id: 'event_bienal_2026',
+      name: 'Bienal de Esculturas de Resistencia',
+      startDate: new Date('2026-07-17T00:00:00.000Z'),
+      endDate: new Date('2026-07-26T00:00:00.000Z'),
+    },
+    update: {
+      name: 'Bienal de Esculturas de Resistencia',
+      startDate: new Date('2026-07-17T00:00:00.000Z'),
+      endDate: new Date('2026-07-26T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.eventExpense.upsert({
+    where: { id: 'expense_bienal_alquiler' },
+    create: {
+      id: 'expense_bienal_alquiler',
+      eventId: event.id,
+      amount: new Decimal('2500000'),
+      description: 'Alquiler',
+      date: new Date('2026-07-17T00:00:00.000Z'),
+    },
+    update: {
+      amount: new Decimal('2500000'),
+      description: 'Alquiler',
+    },
+  });
+
+  for (const def of productDefs) {
+    const productId = products[def.name];
+    if (!productId) continue;
+    const price = new Decimal(def.defaultPrice);
+    await prisma.eventProduct.upsert({
+      where: {
+        eventId_productId: { eventId: event.id, productId },
+      },
+      create: {
+        eventId: event.id,
+        productId,
+        price,
+        cost: price.mul(0.4).toDecimalPlaces(2),
+      },
+      update: {
+        price,
+        cost: price.mul(0.4).toDecimalPlaces(2),
+      },
+    });
+  }
+
+  console.log('Seed completado: usuarios, productos, motivos y evento Bienal.');
 }
 
 main()

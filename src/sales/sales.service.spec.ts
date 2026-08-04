@@ -10,16 +10,17 @@ describe('SalesService', () => {
   let service: SalesService;
   let prisma: {
     idempotencyRecord: { findUnique: jest.Mock; create: jest.Mock };
-    product: { findMany: jest.Mock };
+    event: { findUnique: jest.Mock };
+    eventProduct: { findMany: jest.Mock };
     sale: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
 
-  const product = {
-    id: 'prod-1',
-    name: 'Gorra',
-    defaultPrice: new Decimal('12000'),
-    isActive: true,
+  const eventProduct = {
+    productId: 'prod-1',
+    price: new Decimal('12000'),
+    cost: new Decimal('4800'),
+    product: { id: 'prod-1', name: 'Gorra' },
   };
 
   beforeEach(async () => {
@@ -28,8 +29,11 @@ describe('SalesService', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn(),
       },
-      product: {
-        findMany: jest.fn().mockResolvedValue([product]),
+      event: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'event-1' }),
+      },
+      eventProduct: {
+        findMany: jest.fn().mockResolvedValue([eventProduct]),
       },
       sale: {
         findUnique: jest.fn(),
@@ -57,6 +61,7 @@ describe('SalesService', () => {
     await expect(
       service.create(
         {
+          eventId: 'event-1',
           items: [
             {
               productId: 'prod-1',
@@ -85,6 +90,7 @@ describe('SalesService', () => {
 
     const result = await service.create(
       {
+        eventId: 'event-1',
         items: [
           {
             productId: 'prod-1',
@@ -105,7 +111,7 @@ describe('SalesService', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('persiste el precio unitario enviado (no el default)', async () => {
+  it('persiste el precio unitario enviado y el costo del evento', async () => {
     const createdSale = {
       id: 'sale-new',
       items: [],
@@ -129,6 +135,7 @@ describe('SalesService', () => {
         saleItem: {
           create: jest.fn().mockImplementation(({ data }) => {
             expect(data.unitPrice.toString()).toBe('9999');
+            expect(data.unitCost.toString()).toBe('4800');
             return Promise.resolve(data);
           }),
         },
@@ -140,6 +147,7 @@ describe('SalesService', () => {
 
     await service.create(
       {
+        eventId: 'event-1',
         items: [
           {
             productId: 'prod-1',
@@ -170,6 +178,7 @@ describe('SalesService', () => {
         sale: {
           create: jest.fn().mockImplementation(({ data }) => {
             expect(data.total.toString()).toBe('19500');
+            expect(data.eventId).toBe('event-1');
             return Promise.resolve({ id: 'sale-multi' });
           }),
         },
@@ -183,13 +192,13 @@ describe('SalesService', () => {
       return fn(tx);
     });
 
-    prisma.product.findMany.mockResolvedValue([
-      product,
+    prisma.eventProduct.findMany.mockResolvedValue([
+      eventProduct,
       {
-        id: 'prod-2',
-        name: 'Chapa A4',
-        defaultPrice: new Decimal('5000'),
-        isActive: true,
+        productId: 'prod-2',
+        price: new Decimal('5000'),
+        cost: new Decimal('2000'),
+        product: { id: 'prod-2', name: 'Chapa A4' },
       },
     ]);
 
@@ -197,6 +206,7 @@ describe('SalesService', () => {
 
     await service.create(
       {
+        eventId: 'event-1',
         items: [
           {
             productId: 'prod-1',

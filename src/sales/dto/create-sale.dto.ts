@@ -70,6 +70,11 @@ export class CreateSaleItemDto {
 }
 
 export class CreateSaleDto {
+  @ApiProperty({ description: 'Evento al que pertenece la venta' })
+  @IsString()
+  @IsNotEmpty()
+  eventId!: string;
+
   @ApiProperty({ type: [CreateSaleItemDto] })
   @IsArray()
   @ArrayMinSize(1)

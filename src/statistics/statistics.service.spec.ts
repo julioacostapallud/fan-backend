@@ -6,12 +6,20 @@ import { PrismaService } from '../prisma/prisma.service';
 describe('StatisticsService', () => {
   let service: StatisticsService;
   let prisma: {
+    event: { findUnique: jest.Mock };
     sale: { findMany: jest.Mock };
     saleItem: { findMany: jest.Mock };
   };
 
   beforeEach(async () => {
     prisma = {
+      event: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'event-1',
+          startDate: new Date('2026-07-17T00:00:00.000Z'),
+          endDate: new Date('2026-07-26T00:00:00.000Z'),
+        }),
+      },
       sale: { findMany: jest.fn() },
       saleItem: { findMany: jest.fn() },
     };
@@ -44,7 +52,7 @@ describe('StatisticsService', () => {
       },
     ]);
 
-    const summary = await service.summary();
+    const summary = await service.summary('event-1');
     expect(summary.salesCount).toBe(2);
     expect(summary.totalUnits).toBe(3);
     expect(summary.totalSold.toString()).toBe('18000');
@@ -78,7 +86,7 @@ describe('StatisticsService', () => {
       },
     ]);
 
-    const result = await service.byProducts();
+    const result = await service.byProducts('event-1');
     expect(result).toHaveLength(1);
     expect(result[0].units).toBe(3);
     expect(result[0].salesCount).toBe(2);
