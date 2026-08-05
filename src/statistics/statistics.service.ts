@@ -389,6 +389,7 @@ export class StatisticsService {
 
     const byDay = new Map<string, Map<string, number>>();
     for (const item of items) {
+      if (this.isUnrankedMotif(item.motif.name)) continue;
       const day = toBusinessDayIso(item.sale.createdAt);
       let motifs = byDay.get(day);
       if (!motifs) {
@@ -408,6 +409,12 @@ export class StatisticsService {
           .slice(0, take),
       })),
     };
+  }
+
+  /** "Sin motivo" (y vacíos) no rankean en Top motivos. */
+  private isUnrankedMotif(name: string): boolean {
+    const n = name.trim().toLowerCase();
+    return n === '' || n === '-' || n === '—' || n === 'sin motivo';
   }
 
   /** Totales económicos del evento para el dashboard General. */
