@@ -48,6 +48,14 @@ export class EventsController {
     return this.eventsService.update(id, dto);
   }
 
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Eliminar evento y todas sus ventas',
+  })
+  remove(@Param('id') id: string) {
+    return this.eventsService.remove(id);
+  }
+
   @Get(':id/expenses')
   @ApiOperation({ summary: 'Listar gastos del evento' })
   listExpenses(@Param('id') id: string) {

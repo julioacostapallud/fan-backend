@@ -132,6 +132,31 @@ export class EventsService {
     return this.findOne(id);
   }
 
+  /** Elimina el evento y todas sus ventas (hard delete). Gastos y precios del evento también. */
+  async remove(id: string) {
+    const event = await this.prisma.event.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { sales: true } },
+      },
+    });
+    if (!event) throw new NotFoundException('Evento no encontrado');
+
+    const salesDeleted = event._count.sales;
+
+    await this.prisma.$transaction(async (tx) => {
+      // Explícito: vacía ventas (items e idempotency caen por cascade de Sale).
+      await tx.sale.deleteMany({ where: { eventId: id } });
+      await tx.event.delete({ where: { id } });
+    });
+
+    return {
+      id,
+      deleted: true,
+      salesDeleted,
+    };
+  }
+
   async listExpenses(eventId: string) {
     await this.findOne(eventId);
     const rows = await this.prisma.eventExpense.findMany({
